@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -18,22 +19,42 @@ var fixtureBase string
 
 func TestMain(m *testing.M) {
 	_, file, _, _ := runtime.Caller(0)
-	fixturesDir := filepath.Join(filepath.Dir(file), "..", "..", "fixtures")
-	srv := httptest.NewServer(http.FileServer(http.Dir(fixturesDir)))
-	fixtureBase = srv.URL
+	apiDir := filepath.Join(filepath.Dir(file), "..", "..", "fixtures", "api")
+
+	routes := map[string]string{
+		"/v1/search":      "search_sites.json",
+		"/v1/search/apps": "search_apps.json",
+		"/v1/flows/68":    "flow_68.json",
+		"/v1/screenshots/cdd6f9ec-b0d0-4e2f-86a4-6fdd010861cf": "screen_uuid.json",
+		"/v1/screenshots/211/similar":                          "similar_211.json",
+		"/v1/sites/9":                                          "site_9.json",
+		"/v1/apps/4":                                           "app_4.json",
+		"/v1/design_patterns/available":                        "patterns.json",
+	}
+	mux := http.NewServeMux()
+	for path, file := range routes {
+		file := file
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			b, err := os.ReadFile(filepath.Join(apiDir, file))
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(b)
+		})
+	}
+	srv := httptest.NewServer(mux)
+	fixtureBase = srv.URL + "/v1"
 	defer srv.Close()
 	m.Run()
 }
 
-// callTool runs one MCP tool call through the real client -> server stack and
-// returns the text payload.
 func callTool(t *testing.T, c *client.Client, name string, args map[string]any) string {
 	t.Helper()
-
 	req := mcp.CallToolRequest{}
 	req.Params.Name = name
 	req.Params.Arguments = args
-
 	res, err := c.CallTool(context.Background(), req)
 	if err != nil {
 		t.Fatalf("CallTool(%s): %v", name, err)
@@ -41,7 +62,6 @@ func callTool(t *testing.T, c *client.Client, name string, args map[string]any) 
 	if res.IsError {
 		return "<error>"
 	}
-	// Collect all text content blocks.
 	var out string
 	for _, block := range res.Content {
 		if text, ok := block.(mcp.TextContent); ok {
@@ -54,19 +74,17 @@ func callTool(t *testing.T, c *client.Client, name string, args map[string]any) 
 func TestServerEndToEnd(t *testing.T) {
 	clientImpl := referro.NewClient(referro.WithBaseURL(fixtureBase))
 	srv := New(clientImpl)
-
 	c, err := client.NewInProcessClient(srv)
 	if err != nil {
 		t.Fatalf("NewInProcessClient: %v", err)
 	}
 	t.Cleanup(func() { c.Close() })
 
-	// MCP requires the initialize handshake before any other call.
 	if _, err := c.Initialize(context.Background(), mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
 			ProtocolVersion: "2024-11-05",
 			Capabilities:    mcp.ClientCapabilities{},
-			ClientInfo:      mcp.Implementation{Name: "referro-mcp-test", Version: "0.1.0"},
+			ClientInfo:      mcp.Implementation{Name: "referro-mcp-test", Version: "0.2.0"},
 		},
 	}); err != nil {
 		t.Fatalf("Initialize: %v", err)
@@ -77,76 +95,60 @@ func TestServerEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	names := map[string]string{}
+	names := map[string]bool{}
 	for _, tl := range tools.Tools {
-		names[tl.Name] = tl.Description
+		names[tl.Name] = true
 	}
 	for _, want := range []string{"list_designs", "get_design", "get_design_images", "get_design_workflow"} {
-		if _, ok := names[want]; !ok {
+		if !names[want] {
 			t.Errorf("expected tool %q to be registered", want)
 		}
 	}
 
 	// list_designs
-	out := callTool(t, c, "list_designs", nil)
-	var designs []referro.Design
-	if err := json.Unmarshal([]byte(out), &designs); err != nil {
-		t.Fatalf("list_designs returned non-JSON: %v\n%s", err, out)
+	out := callTool(t, c, "list_designs", map[string]any{"query": "stripe"})
+	var search referro.ScreenSearchResponse
+	if err := json.Unmarshal([]byte(out), &search); err != nil {
+		t.Fatalf("list_designs non-JSON: %v\n%s", err, out)
 	}
-	if len(designs) != 4 {
-		t.Fatalf("expected 4 designs, got %d", len(designs))
+	if len(search.Records) == 0 {
+		t.Fatal("list_designs returned no records")
 	}
-
-	// list_designs with type filter
-	out = callTool(t, c, "list_designs", map[string]any{"type": "mobile"})
-	designs = nil
-	if err := json.Unmarshal([]byte(out), &designs); err != nil {
-		t.Fatalf("filtered list_designs non-JSON: %v", err)
-	}
-	if len(designs) != 1 || designs[0].ID != "mobile-app" {
-		t.Fatalf("mobile filter: got %+v", designs)
+	uuid := search.Records[0].UUID
+	fid := 0
+	if len(search.Records[0].FlowIDs) > 0 {
+		fid = search.Records[0].FlowIDs[0]
 	}
 
-	// get_design fetches markdown
-	out = callTool(t, c, "get_design", map[string]any{"ref": "/designs/landing-page/index.html"})
-	var d referro.Design
-	if err := json.Unmarshal([]byte(out), &d); err != nil {
-		t.Fatalf("get_design non-JSON: %v\n%s", err, out)
+	// get_design by uuid
+	out = callTool(t, c, "get_design", map[string]any{"ref": uuid})
+	var screen referro.Screen
+	if err := json.Unmarshal([]byte(out), &screen); err != nil {
+		t.Fatalf("get_design non-JSON: %v", err)
 	}
-	if d.MD == "" || !stringsContains(d.MD, "Ship faster with Referro") {
-		t.Fatalf("get_design markdown missing spec content: %q...", d.MD)
+	if screen.UUID != uuid {
+		t.Errorf("get_design uuid mismatch")
 	}
 
 	// get_design_images
-	out = callTool(t, c, "get_design_images", map[string]any{"ref": "/designs/mobile-app/index.html"})
-	var imgs []referro.Image
+	out = callTool(t, c, "get_design_images", map[string]any{"ref": uuid})
+	var imgs map[string]any
 	if err := json.Unmarshal([]byte(out), &imgs); err != nil {
-		t.Fatalf("get_design_images non-JSON: %v\n%s", err, out)
+		t.Fatalf("get_design_images non-JSON: %v", err)
 	}
-	if len(imgs) < 3 {
-		t.Fatalf("expected >=3 images, got %d", len(imgs))
+	if imgs["full_resolution"] == nil {
+		t.Error("get_design_images missing full_resolution")
 	}
 
 	// get_design_workflow
-	out = callTool(t, c, "get_design_workflow", map[string]any{"ref": "/designs/landing-page/index.html"})
-	var w referro.Workflow
-	if err := json.Unmarshal([]byte(out), &w); err != nil {
-		t.Fatalf("get_design_workflow non-JSON: %v\n%s", err, out)
-	}
-	if len(w.Steps) != 5 {
-		t.Fatalf("expected 5 steps, got %d", len(w.Steps))
-	}
-}
-
-func stringsContains(s, sub string) bool {
-	return len(s) >= len(sub) && indexOf(s, sub) >= 0
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
+	if fid > 0 {
+		out = callTool(t, c, "get_design_workflow", map[string]any{"id": fid})
+		var flow referro.Flow
+		if err := json.Unmarshal([]byte(out), &flow); err != nil {
+			t.Fatalf("get_design_workflow non-JSON: %v", err)
+		}
+		if len(flow.Steps) == 0 {
+			t.Error("workflow returned no steps")
 		}
 	}
-	return -1
 }

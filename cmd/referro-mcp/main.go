@@ -25,7 +25,7 @@ func main() {
 	flag.Parse()
 
 	if *version {
-		fmt.Println("referro-mcp 0.1.0")
+		fmt.Println("referro-mcp 0.2.0")
 		return
 	}
 

@@ -2,7 +2,7 @@
 # or ~/.config/kilo/kilo.jsonc (KiloCode, an OpenCode fork).
 #
 # Replace /absolute/path/to/referro-mcp with the built binary's location.
-# Set REFERRO_BASE_URL to the site to scrape (defaults to https://referro.design).
+# The server defaults to refero.design's free public API (no auth needed).
 
 {
   "mcp": {
@@ -10,7 +10,6 @@
       "type": "local",
       "command": ["/absolute/path/to/referro-mcp"],
       "environment": {
-        "REFERRO_BASE_URL": "https://referro.design",
         "REFERRO_CACHE_DIR": "/tmp/referro-mcp-cache"
       }
     }
