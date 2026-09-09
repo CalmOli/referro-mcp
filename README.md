@@ -26,6 +26,7 @@ The server registers four tools:
 | `get_design` | Fetch a single design (screen) by UUID, site/app name or domain, or numeric screen ID. Returns full image URLs, page URL, colors, fonts, page types, patterns, and associated flow IDs. |
 | `get_design_images` | Fetch the image URLs for a design (full-resolution, thumbnail, preview). |
 | `get_design_workflow` | Fetch a workflow (a flow: a multi-step user journey like checkout, onboarding, or password reset) by its numeric ID, with the ordered step screens. |
+| `get_similar_screens` | Fetch screens visually similar to a given screen (by its numeric ID). Useful for exploring design variations on a theme. |
 
 `get_design`'s `ref` accepts a screen UUID, a site/app name or domain (e.g.
 `stripe.com`), or a numeric screen ID, so agents can pass whatever they got
@@ -131,7 +132,8 @@ actually needs. Observed endpoints (all `GET`, no auth):
 The API is inconsistent about types across endpoints (e.g. `url` is a string
 on some routes and an array on others; `fonts` is a string array on some and an
 object array on others). The client's `StringList` and `FontList` types absorb
-both shapes.
+both shapes (whitespace-aware, so they survive re-marshaling through
+`json.MarshalIndent`).
 
 ## Layout
 

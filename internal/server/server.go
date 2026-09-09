@@ -28,6 +28,7 @@ func New(client *referro.Client) *server.MCPServer {
 	s.AddTool(getDesignTool(), mcp.NewTypedToolHandler(getDesignHandler(client)))
 	s.AddTool(getDesignImagesTool(), mcp.NewTypedToolHandler(getDesignImagesHandler(client)))
 	s.AddTool(getDesignWorkflowTool(), mcp.NewTypedToolHandler(getDesignWorkflowHandler(client)))
+	s.AddTool(getSimilarScreensTool(), mcp.NewTypedToolHandler(getSimilarScreensHandler(client)))
 
 	return s
 }
@@ -157,6 +158,40 @@ func getDesignWorkflowHandler(client *referro.Client) func(context.Context, mcp.
 			return mcp.NewToolResultError(fmt.Sprintf("failed to fetch workflow: %v", err)), nil
 		}
 		return marshalResult(f)
+	}
+}
+
+// --- get_similar_screens ---
+
+type getSimilarScreensArgs struct {
+	// ID is the numeric screen ID from list_designs.
+	ID   int `json:"id" jsonschema:"required,description=The numeric screen ID (from list_designs)"`
+	Page int `json:"page,omitempty" jsonschema:"description=Page number (1-based). Default 1"`
+}
+
+func getSimilarScreensTool() mcp.Tool {
+	return mcp.NewTool(
+		"get_similar_screens",
+		mcp.WithDescription("Fetch screens visually similar to a given screen (by its numeric ID). Useful for exploring design variations on a theme."),
+		mcp.WithNumber("id", mcp.Required(), mcp.Description("The numeric screen ID (from list_designs)")),
+		mcp.WithNumber("page", mcp.Description("Page number (1-based). Default 1")),
+	)
+}
+
+func getSimilarScreensHandler(client *referro.Client) func(context.Context, mcp.CallToolRequest, getSimilarScreensArgs) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, _ mcp.CallToolRequest, args getSimilarScreensArgs) (*mcp.CallToolResult, error) {
+		if args.ID < 1 {
+			return mcp.NewToolResultError("id is required"), nil
+		}
+		page := args.Page
+		if page < 1 {
+			page = 1
+		}
+		res, err := client.GetSimilarScreens(ctx, args.ID, page)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to fetch similar screens: %v", err)), nil
+		}
+		return marshalResult(res)
 	}
 }
 

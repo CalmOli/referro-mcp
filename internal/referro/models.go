@@ -99,13 +99,34 @@ func (f *FontList) UnmarshalJSON(b []byte) error {
 		*f = nil
 		return nil
 	}
-	if b[0] == '[' && len(b) > 1 && b[1] == '"' {
-		var many []string
-		if err := json.Unmarshal(b, &many); err != nil {
+	// Decide string-vs-object form from the first non-whitespace byte.
+	// Whitespace-aware: json.MarshalIndent inserts newlines inside arrays,
+	// so `[ \n "font" \n ]` must still be detected as the string form.
+	skip := func(i int) int {
+		for i < len(b) && (b[i] == ' ' || b[i] == '\n' || b[i] == '\t' || b[i] == '\r') {
+			i++
+		}
+		return i
+	}
+	i := skip(0)
+	switch b[i] {
+	case '"':
+		var one string
+		if err := json.Unmarshal(b, &one); err != nil {
 			return err
 		}
-		*f = many
+		*f = []string{one}
 		return nil
+	case '[':
+		j := skip(i + 1)
+		if j < len(b) && b[j] == '"' {
+			var many []string
+			if err := json.Unmarshal(b, &many); err != nil {
+				return err
+			}
+			*f = many
+			return nil
+		}
 	}
 	// Object form: [{id, name, display_name}, ...]
 	var objs []struct {

@@ -99,7 +99,7 @@ func TestServerEndToEnd(t *testing.T) {
 	for _, tl := range tools.Tools {
 		names[tl.Name] = true
 	}
-	for _, want := range []string{"list_designs", "get_design", "get_design_images", "get_design_workflow"} {
+	for _, want := range []string{"list_designs", "get_design", "get_design_images", "get_design_workflow", "get_similar_screens"} {
 		if !names[want] {
 			t.Errorf("expected tool %q to be registered", want)
 		}
@@ -150,5 +150,15 @@ func TestServerEndToEnd(t *testing.T) {
 		if len(flow.Steps) == 0 {
 			t.Error("workflow returned no steps")
 		}
+	}
+
+	// get_similar_screens (numeric screen ID from search results)
+	out = callTool(t, c, "get_similar_screens", map[string]any{"id": search.Records[0].ID})
+	var similar referro.ScreenSearchResponse
+	if err := json.Unmarshal([]byte(out), &similar); err != nil {
+		t.Fatalf("get_similar_screens non-JSON: %v\n%s", err, out)
+	}
+	if len(similar.Records) == 0 {
+		t.Error("get_similar_screens returned no records")
 	}
 }
