@@ -1,0 +1,10 @@
+# referro-mcp binary
+/referro-mcp
+/dist/
+
+# Go build artifacts
+*.test
+*.out
+
+# Local cache
+.cache/
